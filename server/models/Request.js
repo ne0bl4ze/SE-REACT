@@ -32,6 +32,12 @@ const requestSchema = new mongoose.Schema({
     ],
     default: "assigned",
   },
+  route: [
+    {
+      lat: Number,
+      lng: Number,
+    },
+  ],
 
 }, { timestamps: true });
 

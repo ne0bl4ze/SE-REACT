@@ -100,11 +100,6 @@ exports.createRequest = async (req, res) => {
 
     console.log("STEP 8: emitting route to room:", requestId);
 
-    // 🔥 FIXED
-    io.to(requestId).emit("route_data", {
-      route: formattedRoute,
-    });
-
     // ================= MOVEMENT =================
     let currentIndex = 0;
     let progress = 0;

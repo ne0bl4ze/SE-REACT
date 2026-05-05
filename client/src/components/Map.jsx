@@ -62,7 +62,6 @@ function Map({ activeVehicle, vehicleType, target, route, allVehicles }) {
 
   return (
     <MapContainer
-      key={formattedRoute.length} // 🔥 FORCE RE-RENDER
       center={center}
       zoom={13}
       style={{ height: "500px", width: "100%" }}
@@ -91,7 +90,10 @@ function Map({ activeVehicle, vehicleType, target, route, allVehicles }) {
 
       {/* 🔥 ROUTE LINE */}
       {formattedRoute.length > 1 && (
-        <Polyline positions={formattedRoute} color="red" />
+        <Polyline 
+          positions={formattedRoute} 
+          color="red" 
+        />
       )}
 
       {/* 🔹 MOVING VEHICLE */}

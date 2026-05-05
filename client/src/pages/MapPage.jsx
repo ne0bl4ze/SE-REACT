@@ -27,24 +27,23 @@ function MapPage() {
   const [status, setStatus] = useState("");
   const [completed, setCompleted] = useState(false);
 
-  // 🔍 DEBUG
   useEffect(() => {
     console.log("✅ ROUTE STATE:", route?.length);
   }, [route]);
 
-  // 🔹 Load vehicles
+  // Load vehicles
   useEffect(() => {
     axios.get(`${API_URL}/api/vehicles`)
       .then(res => setAllVehicles(res.data));
   }, []);
 
-  // 🔥 FETCH ROUTE FROM DB (SAFE LOAD)
+  // ✅ FIXED: allow ANY route length
   useEffect(() => {
     if (!requestId) return;
 
     axios.get(`${API_URL}/api/request/${requestId}`)
       .then(res => {
-        if (res.data.route && res.data.route.length > 5) {
+        if (res.data.route && res.data.route.length > 0) {
           console.log("✅ DB ROUTE LOADED");
           setRoute(res.data.route);
         }
@@ -54,23 +53,15 @@ function MapPage() {
       });
   }, [requestId]);
 
-  // 🔹 Socket events (FIXED)
+  // Socket events
   useEffect(() => {
     if (!socket || !requestId) return;
 
-    // ✅ JOIN ROOM ONLY WHEN READY
     socket.emit("join_request", requestId);
 
-    socket.on("new_request", (data) => {
-      setTarget(data.request.location);
-    });
-
     socket.on("route_data", (data) => {
-      console.log("📡 ROUTE RECEIVED:", data.route?.length);
-
-      if (data.route && data.route.length > 5) {
-        setRoute(data.route);
-      }
+      console.log("📡 ROUTE RECEIVED:", data);
+      if (data.route) setRoute(data.route);
     });
 
     socket.on("vehicle_update", (data) => {
@@ -96,7 +87,6 @@ function MapPage() {
     });
 
     return () => {
-      socket.off("new_request");
       socket.off("route_data");
       socket.off("vehicle_update");
     };

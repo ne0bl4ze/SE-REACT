@@ -18,33 +18,59 @@ function initSocket(server) {
   io.on("connection", (socket) => {
     console.log("✅ Client connected:", socket.id);
 
-    // 🔥 JOIN ROOM (CRITICAL)
+    // ================= JOIN REQUEST =================
     socket.on("join_request", async (requestId) => {
       console.log("📥 Joining room:", requestId);
+
       socket.join(requestId);
 
       try {
-        const request = await Request.findById(requestId);
+        let attempts = 0;
 
-        // ✅ SEND STORED ROUTE (FOR REFRESH CASE)
-        if (request?.route?.length > 0) {
-          console.log("📤 Sending stored route:", request.route.length);
+        // 🔥 GUARANTEED ROUTE DELIVERY FUNCTION
+        const sendRoute = async () => {
+          const request = await Request.findById(requestId);
 
-          socket.emit("route_data", {
-            route: request.route,
-          });
-        }
+          console.log(
+            `🔍 Checking route (attempt ${attempts}):`,
+            request?.route?.length
+          );
+
+          // ✅ ROUTE AVAILABLE → SEND
+          if (request?.route?.length > 0) {
+            console.log("📤 Sending route to client:", request.route.length);
+
+            socket.emit("route_data", {
+              route: request.route,
+            });
+
+            return;
+          }
+
+          // 🔁 RETRY (handles async DB delay)
+          if (attempts < 10) {
+            attempts++;
+            setTimeout(sendRoute, 300);
+          } else {
+            console.log("❌ Route not available after retries");
+          }
+        };
+
+        sendRoute();
+
       } catch (err) {
-        console.log("❌ Error fetching stored route:", err.message);
+        console.log("❌ Error fetching route:", err.message);
       }
     });
 
+    // ================= DISCONNECT =================
     socket.on("disconnect", () => {
       console.log("❌ Client disconnected:", socket.id);
     });
   });
 }
 
+// ================= GET IO =================
 function getIO() {
   if (!io) throw new Error("Socket not initialized");
   return io;
