@@ -3,8 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import Map from "../components/Map";
 import useSocket from "../hooks/useSocket";
-
-const API_URL = "http://localhost:5000";
+import { API_URL } from "../config";
 
 function MapPage() {
   const socket = useSocket();
@@ -20,37 +19,36 @@ function MapPage() {
   };
 
   const [activeVehicle, setActiveVehicle] = useState(null);
-  const [target, setTarget] = useState(initialTarget);
+  const [target] = useState(initialTarget);
   const [route, setRoute] = useState([]);
   const [allVehicles, setAllVehicles] = useState([]);
   const [eta, setEta] = useState(null);
   const [status, setStatus] = useState("");
   const [completed, setCompleted] = useState(false);
 
+  // Redirect if navigated here directly without a requestId
   useEffect(() => {
-    console.log("✅ ROUTE STATE:", route?.length);
-  }, [route]);
+    if (!requestId) navigate("/");
+  }, [requestId, navigate]);
 
-  // Load vehicles
+  // Load all vehicles for the map
   useEffect(() => {
     axios.get(`${API_URL}/api/vehicles`)
-      .then(res => setAllVehicles(res.data));
+      .then(res => setAllVehicles(res.data))
+      .catch(() => {});
   }, []);
 
-  // ✅ FIXED: allow ANY route length
+  // Fetch persisted route from DB
   useEffect(() => {
     if (!requestId) return;
 
     axios.get(`${API_URL}/api/request/${requestId}`)
       .then(res => {
         if (res.data.route && res.data.route.length > 0) {
-          console.log("✅ DB ROUTE LOADED");
           setRoute(res.data.route);
         }
       })
-      .catch(() => {
-        console.log("Route fetch fallback used");
-      });
+      .catch(() => {});
   }, [requestId]);
 
   // Socket events
@@ -60,13 +58,10 @@ function MapPage() {
     socket.emit("join_request", requestId);
 
     socket.on("route_data", (data) => {
-      console.log("📡 ROUTE RECEIVED:", data);
       if (data.route) setRoute(data.route);
     });
 
     socket.on("vehicle_update", (data) => {
-      console.log("🚗 Vehicle update:", data);
-
       if (data.cancelled) {
         navigate("/");
         return;
@@ -93,13 +88,17 @@ function MapPage() {
   }, [socket, requestId, navigate]);
 
   const cancelRequest = async () => {
-    await axios.post(`${API_URL}/api/cancel-request/${requestId}`);
+    try {
+      await axios.post(`${API_URL}/api/cancel-request/${requestId}`);
+    } catch {
+      // navigate regardless so the user isn't stuck
+    }
     navigate("/");
   };
 
   return (
-    <div style={{ textAlign: "center" }}>
-      <h2>🚑 Live Tracking</h2>
+    <div style={{ textAlign: "center", position: "relative" }}>
+      <h2>Live Tracking</h2>
 
       <button onClick={cancelRequest}>Cancel</button>
 
@@ -110,15 +109,15 @@ function MapPage() {
         background: "white",
         padding: "10px",
         borderRadius: "10px",
-        zIndex: 1000
+        zIndex: 1000,
       }}>
-        <p><b>Status:</b> {status}</p>
-        <p><b>ETA:</b> {eta ? eta.toFixed(2) + " mins" : "Calculating..."}</p>
+        <p><b>Status:</b> {status || "Waiting..."}</p>
+        <p><b>ETA:</b> {eta !== null ? eta.toFixed(2) + " mins" : "Calculating..."}</p>
       </div>
 
       {completed && (
         <div>
-          <h3>✅ Vehicle Reached</h3>
+          <h3>Vehicle Reached</h3>
           <button onClick={() => navigate("/")}>Back to Home</button>
         </div>
       )}

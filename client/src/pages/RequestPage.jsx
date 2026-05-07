@@ -1,20 +1,18 @@
 import { useState } from "react";
 import axios from "axios";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import EmergencyForm from "../components/EmergencyForm";
-
-const API_URL = "http://localhost:5000";
+import { API_URL, DEFAULT_LATITUDE, DEFAULT_LONGITUDE } from "../config";
 
 function RequestPage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
 
   const handleRequest = async (type) => {
+    setLoading(true);
     try {
-      setLoading(true);
-
-      const lat = 17.385;
-      const lng = 78.4867;
+      const lat = DEFAULT_LATITUDE;
+      const lng = DEFAULT_LONGITUDE;
 
       const res = await axios.post(`${API_URL}/api/request-emergency`, {
         userId: "user123",
@@ -23,7 +21,6 @@ function RequestPage() {
         lng,
       });
 
-      // ✅ PASS ALL REQUIRED DATA
       navigate("/map", {
         state: {
           requestId: res.data.requestId,
@@ -32,7 +29,6 @@ function RequestPage() {
           lng,
         },
       });
-
     } catch {
       alert("No vehicles available");
       setLoading(false);
@@ -41,10 +37,10 @@ function RequestPage() {
 
   return (
     <div style={{ textAlign: "center" }}>
-      <h1>🚨 Emergency System</h1>
+      <h1>Emergency System</h1>
 
       <div>
-        <a href="/admin">Admin</a>
+        <Link to="/admin">Admin</Link>
       </div>
 
       <EmergencyForm onRequest={handleRequest} />
