@@ -1,135 +1,140 @@
 import { useEffect, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, Link } from "react-router-dom";
 import axios from "axios";
 import Map from "../components/Map";
 import useSocket from "../hooks/useSocket";
 import { API_URL } from "../config";
+
+const STATUS_LABELS = { on_the_way: "En Route", reached: "Reached", assigned: "Assigned" };
+const badgeClass = (s) =>
+  s === "reached" ? "badge-reached" : s ? "badge-on-way" : "badge-waiting";
 
 function MapPage() {
   const socket = useSocket();
   const location = useLocation();
   const navigate = useNavigate();
 
-  const requestId = location.state?.requestId;
+  const requestId   = location.state?.requestId;
   const vehicleType = location.state?.type;
 
-  const initialTarget = {
-    lat: location.state?.lat,
-    lng: location.state?.lng,
-  };
-
   const [activeVehicle, setActiveVehicle] = useState(null);
-  const [target] = useState(initialTarget);
-  const [route, setRoute] = useState([]);
+  const [target]  = useState({ lat: location.state?.lat, lng: location.state?.lng });
+  const [route, setRoute]             = useState([]);
   const [allVehicles, setAllVehicles] = useState([]);
-  const [eta, setEta] = useState(null);
-  const [status, setStatus] = useState("");
-  const [completed, setCompleted] = useState(false);
+  const [eta, setEta]                 = useState(null);
+  const [status, setStatus]           = useState("");
+  const [completed, setCompleted]     = useState(false);
 
-  // Redirect if navigated here directly without a requestId
-  useEffect(() => {
-    if (!requestId) navigate("/");
-  }, [requestId, navigate]);
+  useEffect(() => { if (!requestId) navigate("/"); }, [requestId, navigate]);
 
-  // Load all vehicles for the map
   useEffect(() => {
-    axios.get(`${API_URL}/api/vehicles`)
-      .then(res => setAllVehicles(res.data))
-      .catch(() => {});
+    axios.get(`${API_URL}/api/vehicles`).then(r => setAllVehicles(r.data)).catch(() => {});
   }, []);
 
-  // Fetch persisted route from DB
   useEffect(() => {
     if (!requestId) return;
-
     axios.get(`${API_URL}/api/request/${requestId}`)
-      .then(res => {
-        if (res.data.route && res.data.route.length > 0) {
-          setRoute(res.data.route);
-        }
-      })
+      .then(r => { if (r.data.route?.length > 0) setRoute(r.data.route); })
       .catch(() => {});
   }, [requestId]);
 
-  // Socket events
   useEffect(() => {
     if (!socket || !requestId) return;
-
     socket.emit("join_request", requestId);
-
-    socket.on("route_data", (data) => {
-      if (data.route) setRoute(data.route);
+    socket.on("route_data",    (d) => { if (d.route) setRoute(d.route); });
+    socket.on("vehicle_update", (d) => {
+      if (d.cancelled) { navigate("/"); return; }
+      if (d.completed) { setCompleted(true); setStatus("reached"); return; }
+      if (d.lat !== undefined) setActiveVehicle({ lat: d.lat, lng: d.lng });
+      if (d.eta !== undefined) setEta(d.eta);
+      if (d.status) setStatus(d.status);
     });
-
-    socket.on("vehicle_update", (data) => {
-      if (data.cancelled) {
-        navigate("/");
-        return;
-      }
-
-      if (data.completed) {
-        setCompleted(true);
-        setStatus("Reached");
-        return;
-      }
-
-      if (data.lat !== undefined) {
-        setActiveVehicle({ lat: data.lat, lng: data.lng });
-      }
-
-      if (data.eta !== undefined) setEta(data.eta);
-      if (data.status) setStatus(data.status);
-    });
-
-    return () => {
-      socket.off("route_data");
-      socket.off("vehicle_update");
-    };
+    return () => { socket.off("route_data"); socket.off("vehicle_update"); };
   }, [socket, requestId, navigate]);
 
   const cancelRequest = async () => {
-    try {
-      await axios.post(`${API_URL}/api/cancel-request/${requestId}`);
-    } catch {
-      // navigate regardless so the user isn't stuck
-    }
+    try { await axios.post(`${API_URL}/api/cancel-request/${requestId}`); } catch {}
     navigate("/");
   };
 
+  const displayStatus = STATUS_LABELS[status] || status || "Waiting";
+
   return (
-    <div style={{ textAlign: "center", position: "relative" }}>
-      <h2>Live Tracking</h2>
+    <>
+      <nav className="navbar">
+        <Link to="/" className="navbar-brand">
+          <div className="brand-badge">112</div>
+          <div>
+            <div className="brand-title">REACT</div>
+            <div className="brand-sub">Emergency Response</div>
+          </div>
+        </Link>
+        <div className="navbar-links">
+          <Link to="/">Home</Link>
+          <Link to="/admin">Officer Login</Link>
+        </div>
+      </nav>
 
-      <button onClick={cancelRequest}>Cancel</button>
+      <div className="map-page">
+        <Map
+          activeVehicle={activeVehicle}
+          vehicleType={vehicleType}
+          target={target}
+          route={route}
+          allVehicles={allVehicles}
+        />
 
-      <div style={{
-        position: "absolute",
-        top: 100,
-        left: 20,
-        background: "white",
-        padding: "10px",
-        borderRadius: "10px",
-        zIndex: 1000,
-      }}>
-        <p><b>Status:</b> {status || "Waiting..."}</p>
-        <p><b>ETA:</b> {eta !== null ? eta.toFixed(2) + " mins" : "Calculating..."}</p>
+        <div className="map-overlay">
+          <div className="status-card">
+            <h3>Dispatch Status</h3>
+            <div className="status-row">
+              <span>Status</span>
+              <span className={`status-badge ${badgeClass(status)}`}>{displayStatus}</span>
+            </div>
+            <div className="status-row">
+              <span>ETA</span>
+              <span>
+                {eta !== null
+                  ? <><span className="eta-value">{eta.toFixed(1)}</span><span className="eta-unit">min</span></>
+                  : <span style={{ fontSize: 12, color: "var(--muted)" }}>Calculating…</span>
+                }
+              </span>
+            </div>
+            {vehicleType && (
+              <div className="status-row">
+                <span>Unit</span>
+                <span style={{ fontSize: 12, fontWeight: 600, textTransform: "capitalize", color: "var(--navy)" }}>
+                  {vehicleType}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {!completed && (
+            <button className="cancel-btn" onClick={cancelRequest}>Cancel Request</button>
+          )}
+        </div>
+
       </div>
 
       {completed && (
-        <div>
-          <h3>Vehicle Reached</h3>
-          <button onClick={() => navigate("/")}>Back to Home</button>
+        <div className="arrival-backdrop">
+          <div className="arrival-modal">
+            <div className="arrival-icon">
+              {vehicleType === "ambulance" ? "🚑" : vehicleType === "police" ? "🚓" : "🔥"}
+            </div>
+            <h2>Help Has Arrived</h2>
+            <p>
+              Your {vehicleType || "emergency unit"} has reached your location.
+              Stay calm — assistance is with you.
+            </p>
+            <button className="arrival-btn" onClick={() => navigate("/")}>
+              Back to Home
+            </button>
+          </div>
         </div>
       )}
-
-      <Map
-        activeVehicle={activeVehicle}
-        vehicleType={vehicleType}
-        target={target}
-        route={route}
-        allVehicles={allVehicles}
-      />
-    </div>
+    </>
   );
 }
 

@@ -17,7 +17,7 @@ function getDistance(lat1, lng1, lat2, lng2) {
 
 const activeTrips = {};
 
-// ================= CREATE =================
+// ── CREATE ──────────────────────────────────────────────────────────────────
 exports.createRequest = async (req, res) => {
   try {
     const { userId, emergencyType, lat, lng } = req.body;
@@ -28,7 +28,6 @@ exports.createRequest = async (req, res) => {
 
     const parsedLat = parseFloat(lat);
     const parsedLng = parseFloat(lng);
-
     if (isNaN(parsedLat) || isNaN(parsedLng)) {
       return res.status(400).json({ message: "lat and lng must be valid numbers" });
     }
@@ -48,13 +47,9 @@ exports.createRequest = async (req, res) => {
 
     let nearest = validVehicles[0];
     let minDist = Infinity;
-
     for (const v of validVehicles) {
       const d = getDistance(parsedLat, parsedLng, v.location.lat, v.location.lng);
-      if (!isNaN(d) && d < minDist) {
-        minDist = d;
-        nearest = v;
-      }
+      if (!isNaN(d) && d < minDist) { minDist = d; nearest = v; }
     }
 
     nearest.status = "busy";
@@ -71,22 +66,18 @@ exports.createRequest = async (req, res) => {
     const requestId = request._id.toString();
     const io = getIO();
 
-    // ================= ROUTE =================
+    // ── ROUTE via OSRM (free, no key, real roads) ──────────────────────────
     let coords = [];
 
     try {
-      const routeRes = await axios.get(
-        "https://api.openrouteservice.org/v2/directions/driving-car",
-        {
-          headers: { Authorization: process.env.ORS_API_KEY },
-          params: {
-            start: `${nearest.location.lng},${nearest.location.lat}`,
-            end: `${parsedLng},${parsedLat}`,
-          },
-        }
+      const osrmRes = await axios.get(
+        `http://router.project-osrm.org/route/v1/driving/` +
+        `${nearest.location.lng},${nearest.location.lat};${parsedLng},${parsedLat}`,
+        { params: { overview: "full", geometries: "geojson" } }
       );
-      coords = routeRes.data.features[0].geometry.coordinates;
+      coords = osrmRes.data.routes[0].geometry.coordinates; // [[lng, lat], ...]
     } catch {
+      // straight-line fallback
       coords = [
         [nearest.location.lng, nearest.location.lat],
         [parsedLng, parsedLat],
@@ -94,63 +85,46 @@ exports.createRequest = async (req, res) => {
     }
 
     const formattedRoute = coords.map(([cLng, cLat]) => ({ lat: cLat, lng: cLng }));
-
     request.route = formattedRoute;
     await request.save();
 
-    // Push route to any client already in the room
+    // Push route to any client already waiting in the room
     io.to(requestId).emit("route_data", { route: formattedRoute });
 
-    // ================= MOVEMENT =================
-    let currentIndex = 0;
-    let progress = 0;
+    // ── MOVEMENT SIMULATION ────────────────────────────────────────────────
+    // Spread the trip over ~40 seconds regardless of route length
+    const TRIP_MS   = 40000;
+    const tickMs    = Math.max(150, Math.round(TRIP_MS / coords.length));
+    let   stepIndex = 0;
 
     const interval = setInterval(async () => {
-      if (currentIndex >= coords.length - 1) {
+      stepIndex++;
+
+      if (stepIndex >= coords.length) {
         clearInterval(interval);
         delete activeTrips[requestId];
 
         await Vehicle.findByIdAndUpdate(nearest._id, { status: "available" });
 
         const [finalLng, finalLat] = coords[coords.length - 1];
-
         io.to(requestId).emit("vehicle_update", {
-          lat: finalLat,
-          lng: finalLng,
-          status: "reached",
-          eta: 0,
-          completed: true,
+          lat: finalLat, lng: finalLng,
+          status: "reached", eta: 0, completed: true,
         });
-
         return;
       }
 
-      const [lng1, lat1] = coords[currentIndex];
-      const [lng2, lat2] = coords[currentIndex + 1];
-
-      const curLat = lat1 + (lat2 - lat1) * progress;
-      const curLng = lng1 + (lng2 - lng1) * progress;
-
-      const remainingSegments = coords.length - 1 - currentIndex;
-      const eta = (remainingSegments * 0.3 * 10) / 60; // 300ms/step * 10 steps/segment → minutes
+      const [cLng, cLat] = coords[stepIndex];
+      const remainingMs  = (coords.length - stepIndex) * tickMs;
+      const eta          = remainingMs / 60000; // minutes
 
       io.to(requestId).emit("vehicle_update", {
-        lat: curLat,
-        lng: curLng,
-        status: "on_the_way",
-        eta,
+        lat: cLat, lng: cLng,
+        status: "on_the_way", eta,
       });
-
-      progress += 0.1;
-
-      if (progress >= 1) {
-        progress = 0;
-        currentIndex++;
-      }
-    }, 300);
+    }, tickMs);
 
     activeTrips[requestId] = interval;
-
     res.status(201).json({ requestId });
 
   } catch (err) {
@@ -159,11 +133,10 @@ exports.createRequest = async (req, res) => {
   }
 };
 
-// ================= CANCEL =================
+// ── CANCEL ───────────────────────────────────────────────────────────────────
 exports.cancelRequest = async (req, res) => {
   try {
     const { id } = req.params;
-
     const request = await Request.findById(id);
     if (!request) return res.status(404).json({ message: "Not found" });
 
@@ -172,37 +145,29 @@ exports.cancelRequest = async (req, res) => {
 
     await Vehicle.findByIdAndUpdate(request.assignedVehicle, { status: "available" });
 
-    if (activeTrips[id]) {
-      clearInterval(activeTrips[id]);
-      delete activeTrips[id];
-    }
+    if (activeTrips[id]) { clearInterval(activeTrips[id]); delete activeTrips[id]; }
 
     getIO().to(id).emit("vehicle_update", { cancelled: true });
-
     res.json({ message: "Cancelled" });
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
 
-// ================= ADMIN =================
+// ── ADMIN ────────────────────────────────────────────────────────────────────
 exports.updateVehicleStatus = async (req, res) => {
   try {
     const vehicle = await Vehicle.findById(req.params.id);
     if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
-
     vehicle.status = req.body.status;
     await vehicle.save();
-
     res.json({ message: "Vehicle updated" });
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
 
-// ================= GET =================
+// ── GET ──────────────────────────────────────────────────────────────────────
 exports.getRequestById = async (req, res) => {
   try {
     const request = await Request.findById(req.params.id);

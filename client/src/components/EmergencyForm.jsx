@@ -1,20 +1,40 @@
 import React, { useState } from "react";
 
-function EmergencyForm({ onRequest }) {
+const TYPES = [
+  { value: "ambulance", icon: "🚑", label: "Ambulance", sub: "Medical emergency" },
+  { value: "police",    icon: "🚓", label: "Police",    sub: "Law enforcement" },
+  { value: "fire",      icon: "🔥", label: "Fire Truck", sub: "Fire & rescue" },
+];
+
+function EmergencyForm({ onRequest, loading }) {
   const [type, setType] = useState("ambulance");
 
   return (
-    <div className="form">
-      <h2>Request Emergency</h2>
+    <>
+      <div className="type-grid">
+        {TYPES.map((t) => (
+          <div
+            key={t.value}
+            className={`type-card ${type === t.value ? "selected" : ""}`}
+            onClick={() => setType(t.value)}
+          >
+            <div className="icon">{t.icon}</div>
+            <div className="label">{t.label}</div>
+            <div className="sublabel">{t.sub}</div>
+          </div>
+        ))}
+      </div>
 
-      <select value={type} onChange={(e) => setType(e.target.value)}>
-        <option value="ambulance">🚑 Ambulance</option>
-        <option value="police">🚓 Police</option>
-        <option value="fire">🔥 Fire</option>
-      </select>
+      <button
+        className="request-btn"
+        onClick={() => onRequest(type)}
+        disabled={loading}
+      >
+        {loading ? "Dispatching..." : "Request Emergency Response"}
+      </button>
 
-      <button onClick={() => onRequest(type)}>Request</button>
-    </div>
+      {loading && <div className="loading-bar" />}
+    </>
   );
 }
 

@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import RequestPage from "./pages/RequestPage";
 import MapPage from "./pages/MapPage";
 import Admin from "./components/Admin";
+import "./App.css";
 
 function App() {
   return (
